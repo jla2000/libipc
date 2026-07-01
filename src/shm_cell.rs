@@ -5,6 +5,7 @@ use std::os::fd::OwnedFd;
 use crate::shm::Shm;
 use crate::shm::ShmError;
 
+#[derive(Debug)]
 pub(crate) struct ShmCell<T> {
     memory: Shm,
     _marker: PhantomData<T>,
@@ -49,7 +50,7 @@ impl<T> ShmCell<T> {
 impl<T> AsRef<T> for ShmCell<T> {
     fn as_ref(&self) -> &T {
         // SAFETY: self.memory contains a valid T
-        unsafe { &*self.memory.as_ptr().cast().as_ref() }
+        unsafe { self.memory.as_ptr().cast().as_ref() }
     }
 }
 

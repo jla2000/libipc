@@ -2,6 +2,7 @@ use std::num::NonZero;
 
 use crate::shm::Shm;
 
+mod ring_buffer;
 mod shm;
 mod shm_cell;
 

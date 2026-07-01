@@ -15,6 +15,7 @@ pub(crate) enum ShmError {
     InvalidSize,
 }
 
+#[derive(Debug)]
 pub(crate) struct Shm {
     ptr: NonNull<u8>,
     size: NonZero<usize>,
