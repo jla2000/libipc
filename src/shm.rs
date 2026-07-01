@@ -1,5 +1,5 @@
 use std::num::NonZero;
-use std::os::fd::OwnedFd;
+use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::ptr::NonNull;
 
 use nix::sys::memfd::{MFdFlags, memfd_create};
@@ -8,26 +8,29 @@ use nix::unistd::{Whence, ftruncate, lseek};
 
 #[derive(thiserror::Error, Debug)]
 pub(crate) enum ShmError {
-    #[error("nix error: {0}")]
-    Nix(#[from] nix::Error),
+    #[error("Unexpected error: {0}")]
+    Unexpected(#[from] nix::Error),
 
-    #[error("Not a valid shared memory file descriptor")]
-    InvalidFd,
+    #[error("invalid size")]
+    InvalidSize,
 }
 
-pub(crate) struct SharedMemory {
-    pub(crate) ptr: NonNull<u8>,
-    pub(crate) size: NonZero<usize>,
-    _fd: OwnedFd,
+pub(crate) struct Shm {
+    ptr: NonNull<u8>,
+    size: NonZero<usize>,
+    fd: OwnedFd,
 }
 
-impl SharedMemory {
+impl Shm {
     pub(crate) fn new(name: &str, size: NonZero<usize>) -> Result<Self, ShmError> {
         let fd = memfd_create(name, MFdFlags::MFD_CLOEXEC)?;
-        ftruncate(&fd, size.get().try_into().unwrap())?;
+        ftruncate(
+            &fd,
+            size.get().try_into().map_err(|_| ShmError::InvalidSize)?,
+        )?;
 
         let ptr = mmap_fd(&fd, size)?;
-        Ok(SharedMemory { ptr, size, _fd: fd })
+        Ok(Shm { ptr, size, fd })
     }
 
     pub(crate) fn from_fd(fd: OwnedFd) -> Result<Self, ShmError> {
@@ -35,10 +38,22 @@ impl SharedMemory {
         let size = usize::try_from(size)
             .ok()
             .and_then(NonZero::new)
-            .ok_or(ShmError::InvalidFd)?;
+            .ok_or(ShmError::InvalidSize)?;
 
         let ptr = mmap_fd(&fd, size)?;
-        Ok(SharedMemory { ptr, size, _fd: fd })
+        Ok(Shm { ptr, size, fd })
+    }
+
+    pub(crate) fn as_ptr(&self) -> NonNull<u8> {
+        self.ptr
+    }
+
+    pub(crate) fn size(&self) -> NonZero<usize> {
+        self.size
+    }
+
+    pub(crate) fn fd(&self) -> BorrowedFd<'_> {
+        self.fd.as_fd()
     }
 }
 
@@ -58,7 +73,7 @@ fn mmap_fd(fd: &OwnedFd, size: NonZero<usize>) -> Result<NonNull<u8>, ShmError> 
     Ok(ptr)
 }
 
-impl Drop for SharedMemory {
+impl Drop for Shm {
     fn drop(&mut self) {
         unsafe { munmap(self.ptr.cast(), self.size.get()).unwrap() };
     }
@@ -70,15 +85,14 @@ mod tests {
 
     #[test]
     fn create_and_map_again() {
-        let mut a = SharedMemory::new("test", NonZero::new(0x1000usize).unwrap()).unwrap();
-        let fd = a._fd.try_clone().unwrap();
-        let mut b = SharedMemory::from_fd(fd).unwrap();
+        let a = Shm::new("test", NonZero::new(0x1000usize).unwrap()).unwrap();
+        let fd = a.fd.try_clone().unwrap();
+        let b = Shm::from_fd(fd).unwrap();
 
-        unsafe { a.ptr.as_ptr().write(42) };
-        assert_eq!(unsafe { b.ptr.as_ptr().read() }, 42);
+        unsafe { a.as_ptr().as_ptr().write(42) };
+        assert_eq!(unsafe { b.as_ptr().as_ptr().read() }, 42);
 
-        unsafe { b.ptr.as_ptr().write(99) };
-        assert_eq!(unsafe { a.ptr.as_ptr().read() }, 99);
+        unsafe { b.as_ptr().as_ptr().write(99) };
+        assert_eq!(unsafe { a.as_ptr().as_ptr().read() }, 99);
     }
 }
-

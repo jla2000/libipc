@@ -1,0 +1,44 @@
+use std::marker::PhantomData;
+use std::num::NonZero;
+
+use crate::shm::Shm;
+use crate::shm::ShmError;
+
+pub(crate) struct ShmCell<T> {
+    memory: Shm,
+    _marker: PhantomData<T>,
+}
+
+impl<T> ShmCell<T> {
+    const SIZE: NonZero<usize> = const { NonZero::new(size_of::<T>()).unwrap() };
+
+    pub(crate) fn new(value: T) -> Result<Self, ShmError> {
+        const { assert!(!std::mem::needs_drop::<T>()) };
+
+        let shm = Shm::new(std::any::type_name::<T>(), Self::SIZE)?;
+        let ptr = shm.as_ptr().cast::<T>();
+
+        // SAFETY: Writing to uninitialized memory
+        unsafe { ptr.write(value) };
+
+        Ok(Self {
+            memory: shm,
+            _marker: PhantomData,
+        })
+    }
+
+    /// SAFETY: todo
+    pub(crate) unsafe fn from_fd(fd: OwnedFd) -> Result<Self, ShmError> {
+        const { assert!(!std::mem::needs_drop::<T>()) };
+
+        let shm = Shm::from_fd(fd)?;
+    }
+}
+
+impl<T> AsRef<T> for ShmCell<T> {
+    fn as_ref(&self) -> &T {
+        // SAFETY: self.memory contains a valid T
+        unsafe { self.memory.as_ptr().cast().as_ref() }
+    }
+}
+
