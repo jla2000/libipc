@@ -1,12 +1,9 @@
 use std::num::NonZero;
 
-use crate::shm::Shm;
-
-mod ring_buffer;
-mod shm;
-mod shm_cell;
+use libipc::RingBuffer;
 
 fn main() {
-    let shm = Shm::new("shm", NonZero::new(0x1000usize).unwrap()).unwrap();
-    println!("ptr: {:p}, size: {:#x}", shm.as_ptr(), shm.size().get());
+    let mut rb = RingBuffer::<u64>::new(NonZero::new(16).unwrap()).unwrap();
+    rb.push(42);
+    println!("popped: {}", rb.pop());
 }

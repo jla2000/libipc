@@ -7,7 +7,7 @@ use nix::sys::mman::{MapFlags, ProtFlags, mmap, munmap};
 use nix::unistd::{Whence, ftruncate, lseek};
 
 #[derive(thiserror::Error, Debug)]
-pub(crate) enum ShmError {
+pub enum ShmError {
     #[error("Unexpected error: {0}")]
     Unexpected(#[from] nix::Error),
 

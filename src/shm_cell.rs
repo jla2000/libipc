@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 use std::num::NonZero;
-use std::os::fd::OwnedFd;
+use std::os::fd::{BorrowedFd, OwnedFd};
 
 use crate::shm::Shm;
 use crate::shm::ShmError;
@@ -44,6 +44,12 @@ impl<T> ShmCell<T> {
         } else {
             Err(ShmError::InvalidSize)
         }
+    }
+}
+
+impl<T> ShmCell<T> {
+    pub(crate) fn fd(&self) -> BorrowedFd<'_> {
+        self.memory.fd()
     }
 }
 

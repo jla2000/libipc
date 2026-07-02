@@ -7,3 +7,10 @@ edition = "2024"
 nix = { version = "0.31.3", features = ["fs", "mman"] }
 thiserror = "2"
 crossbeam-utils = "0.8"
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "throughput"
+harness = false
