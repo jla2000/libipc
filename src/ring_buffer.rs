@@ -1,6 +1,7 @@
 use std::{
     mem::MaybeUninit,
     num::NonZero,
+    ops::Range,
     ptr::NonNull,
     sync::atomic::{AtomicUsize, Ordering},
 };
@@ -36,10 +37,20 @@ struct SharedState {
 
 impl<T> Producer<T> {
     fn write(&mut self, data: &[T]) -> bool {
-        let used = self.writer.wrapping_sub(self.cached_reader);
-        let free = self.capacity.get() - used;
+        let mut used = self.writer.wrapping_sub(self.cached_reader);
+        let mut free = self.capacity.get() - used;
 
-        if free >= data.len() {
+        if free < data.len() {
+            self.cached_reader = unsafe { self.shared.as_ref() }
+                .reader
+                .load(Ordering::Acquire);
+            used = self.writer.wrapping_sub(self.cached_reader);
+            free = self.capacity.get() - used;
+        }
+
+        if free < data.len() {
+            false
+        } else {
             // TODO: write data
 
             self.writer += data.len();
@@ -48,22 +59,25 @@ impl<T> Producer<T> {
                 .store(self.writer, Ordering::Release);
 
             true
-        } else {
-            // Not enough capacity, load the reader
-            self.cached_reader = unsafe { self.shared.as_ref() }
-                .reader
-                .load(Ordering::Acquire);
-
-            false
         }
     }
 }
 
 impl<T> Consumer<T> {
-    fn read(&mut self, data: &mut [T]) -> bool {
-        let used = self.cached_writer.wrapping_sub(self.reader);
+    fn read(&mut self, data: &mut [T]) -> usize {
+        let mut used = self.cached_writer.wrapping_sub(self.reader);
 
-        if used >= data.len() {
+        if used < data.len() {
+            self.cached_writer = unsafe { self.shared.as_ref() }
+                .writer
+                .load(Ordering::Acquire);
+
+            used = self.cached_writer.wrapping_sub(self.reader);
+        }
+
+        if used < data.len() {
+            0
+        } else {
             // TODO: read data
 
             self.reader += data.len();
@@ -71,16 +85,28 @@ impl<T> Consumer<T> {
                 .reader
                 .store(self.reader, Ordering::Release);
 
-            true
-        } else {
-            // Not enough capacity, load the reader
-            self.cached_writer = unsafe { self.shared.as_ref() }
-                .writer
-                .load(Ordering::Acquire);
-
-            false
+            data.len() // TODO: return amount of elements
         }
     }
+}
+
+#[inline]
+fn ring_segments(
+    head: usize,
+    tail: usize,
+    capacity: usize,
+    mask: usize,
+) -> (Range<usize>, Range<usize>) {
+    let used = head.wrapping_sub(tail);
+    let free = capacity - used;
+
+    let idx = head & mask;
+    let until_wrap = capacity - idx;
+
+    let first_len = free.min(until_wrap);
+    let second_len = free - first_len;
+
+    (idx..first_len, 0..second_len)
 }
 
 #[cfg(test)]
@@ -116,13 +142,14 @@ mod tests {
             assert!(producer.write(&buffer));
         }
 
-        // first consume fails, need to reload atomics
-        let mut buffer = [0; 16];
-        assert!(!consumer.read(&mut buffer));
-
         for _ in 0..64 {
             let mut buffer = [0; 16];
-            assert!(consumer.read(&mut buffer));
+            assert_eq!(consumer.read(&mut buffer), 16);
+        }
+
+        for _ in 0..64 {
+            let buffer = [0; 16];
+            assert!(producer.write(&buffer));
         }
     }
 }
