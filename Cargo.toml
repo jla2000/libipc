@@ -11,6 +11,6 @@ crossbeam-utils = "0.8"
 [dev-dependencies]
 criterion = "0.5"
 
-[[bench]]
-name = "throughput"
-harness = false
+# [[bench]]
+# name = "throughput"
+# harness = false
